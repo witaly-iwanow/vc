@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark light">
+<title>Video Codecs</title>
+<style>
+  /* Dark (Ubuntu Yaru) by default; light only when the system asks for it. */
+  :root {
+    --bg: #1e1e1e; --tab: #2c2c2c; --active: #383838; --border: #4a4a4a;
+    --text: #f2f2f2; --muted: #aaa; --accent: #e95420;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #e8e8e8; --tab: #d6d6d6; --active: #fafafa; --border: #b0b0b0;
+      --text: #222; --muted: #555;
+    }
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; box-sizing: border-box; padding: 8px;
+    background: var(--bg); color: var(--text); font-family: monospace;
+  }
+  .tabs { display: flex; padding-left: 16px; }
+  .tab {
+    padding: 11px 28px 5px; margin-right: -8px; border: none; background: none;
+    color: var(--muted); cursor: pointer; position: relative; top: 1px;
+    isolation: isolate; font: inherit;
+  }
+  /* Trapezoid: a bordered box tilted back in perspective, so its sides slant. */
+  .tab::before {
+    content: ""; position: absolute; inset: 0; z-index: -1;
+    border: 1px solid var(--border); border-bottom: none; background: var(--tab);
+    transform: perspective(10px) rotateX(4deg); transform-origin: bottom;
+  }
+  .tab.active { color: var(--text); z-index: 1; }
+  .tab.active::before { background: var(--active); border-top: 3px solid var(--accent); }
+  .panel {
+    flex: 1; min-height: 0; overflow: auto; padding: 20px;
+    border: 1px solid var(--border); border-radius: 0 6px 6px 6px; background: var(--active);
+  }
+  .panel[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div class="tabs">
+  <button class="tab active" data-tab="webrtc">WebRTC</button>
+  <button class="tab" data-tab="mse">MSE</button>
+  <button class="tab" data-tab="webcodecs">WebCodecs</button>
+</div>
+<div class="panel" id="webrtc">WebRTC</div>
+<div class="panel" id="mse" hidden>MSE</div>
+<div class="panel" id="webcodecs" hidden>WebCodecs</div>
+<script>
+  document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+    document.querySelectorAll('.panel').forEach(p => p.hidden = p.id !== tab.dataset.tab);
+  });
+</script>
+</body>
+</html>
