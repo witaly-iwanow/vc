@@ -40,7 +40,8 @@
     border: 1px solid var(--border); border-radius: 0 6px 6px 6px; background: var(--active);
   }
   .panel[hidden] { display: none; }
-  .gh { margin-left: auto; align-self: center; padding-right: 4px; color: var(--head); }
+  a { color: var(--head); }
+  .gh { margin-left: auto; align-self: center; padding-right: 4px; }
   pre.panel { margin: 0; font: inherit; }
   .head { color: var(--head); }
 </style>
@@ -50,11 +51,13 @@
   <button class="tab active" data-tab="webrtc">WebRTC</button>
   <button class="tab" data-tab="mse">MSE</button>
   <button class="tab" data-tab="webcodecs">WebCodecs</button>
+  <button class="tab" data-tab="mse4wc">MSE for WebCodecs</button>
   <a class="gh" href="https://github.com/witaly-iwanow/vc" target="_blank">GitHub</a>
 </div>
 <pre class="panel" id="webrtc"></pre>
 <pre class="panel" id="mse" hidden></pre>
 <pre class="panel" id="webcodecs" hidden></pre>
+<pre class="panel" id="mse4wc" hidden></pre>
 <script>
   document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
@@ -114,6 +117,8 @@
 
   const CODEC_NAMES = { avc1: 'H264', avc3: 'H264', hvc1: 'H265', hev1: 'H265', vp8: 'VP8', vp09: 'VP9', av01: 'AV1' };
 
+  const codecRow = c => [CODEC_NAMES[c.split('.')[0]], describeCodecString(c), c];
+
   // RFC 6381 codec strings, e.g. hvc1.2.4.L153.B0, vp09.02.51.10, av01.0.13M.10
   function describeCodecString(codec) {
     const [fourcc, ...f] = codec.split('.');
@@ -169,7 +174,7 @@
     const ok = await Promise.all(VIDEO_CODECS.map(codec =>
       api.isConfigSupported({ codec, ...config }).then(r => r.supported, () => false)));
     return VIDEO_CODECS.filter((_, i) => ok[i])
-      .map(c => [CODEC_NAMES[c.split('.')[0]], describeCodecString(c), c]);
+      .map(codecRow);
   }
 
   (async () => {
@@ -196,11 +201,50 @@
     } else {
       renderSections(el, Object.entries(MSE_CODECS).map(([type, codecs]) => [
         `${name}.isTypeSupported('${type}')`,
-        codecs.filter(c => window[name].isTypeSupported(`${type}; codecs="${c}"`))
-          .map(c => [CODEC_NAMES[c.split('.')[0]], describeCodecString(c), c]),
+        codecs.filter(c => window[name].isTypeSupported(`${type}; codecs="${c}"`)).map(codecRow),
       ]));
     }
   }
+
+  // No isTypeSupported counterpart, so try addSourceBuffer({videoConfig}) on an open MediaSource.
+  async function mseForWebCodecsCodecs() {
+    if (!window.MediaSource || !window.SourceBuffer?.prototype.hasOwnProperty('appendEncodedChunks')) return null;
+    const ms = new MediaSource();
+    const video = document.createElement('video');
+    video.src = URL.createObjectURL(ms);
+    const opened = await new Promise(r => {
+      ms.addEventListener('sourceopen', () => r(true), { once: true });
+      setTimeout(() => r(false), 1000);
+    });
+    const ok = opened && VIDEO_CODECS.filter(codec => {
+      try {
+        ms.removeSourceBuffer(ms.addSourceBuffer({ videoConfig: { codec } }));
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    URL.revokeObjectURL(video.src);
+    video.removeAttribute('src');
+    video.load();
+    return ok ? ok.map(codecRow) : null;
+  }
+
+  (async () => {
+    const el = document.getElementById('mse4wc');
+    const rows = await mseForWebCodecsCodecs().catch(() => null);
+    if (rows) {
+      renderSections(el, [['MediaSource.addSourceBuffer({videoConfig})', rows]]);
+    } else {
+      el.append('MSE for WebCodecs is not supported in this browser.\n' +
+        'In Chrome, try enabling "Experimental Web Platform features" in chrome://flags.\n');
+    }
+    const link = document.createElement('a');
+    link.href = 'https://github.com/wolenetz/mse-for-webcodecs/blob/main/explainer.md';
+    link.target = '_blank';
+    link.textContent = 'Explainer';
+    el.append('\n', link);
+  })();
 
   {
     const el = document.getElementById('webrtc');
