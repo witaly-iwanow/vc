@@ -4,6 +4,7 @@ A single static page that shows which video codecs the current browser supports 
 * WebRTC (`RTCRtpSender`/`RTCRtpReceiver.getCapabilities`)
 * MSE (`MediaSource.isTypeSupported`)
 * WebCodecs (`VideoDecoder`/`VideoEncoder.isConfigSupported`)
+* [MSE for WebCodecs](https://github.com/wolenetz/mse-for-webcodecs/blob/main/explainer.md) (`MediaSource.addSourceBuffer({videoConfig})`)
 
 [Live demo](https://witaly-iwanow.github.io/vc/)
 
