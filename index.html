@@ -53,7 +53,7 @@
   <a class="gh" href="https://github.com/witaly-iwanow/vc" target="_blank">GitHub</a>
 </div>
 <pre class="panel" id="webrtc"></pre>
-<div class="panel" id="mse" hidden>MSE</div>
+<pre class="panel" id="mse" hidden></pre>
 <div class="panel" id="webcodecs" hidden>WebCodecs</div>
 <script>
   document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => {
@@ -81,6 +81,11 @@
     return `${profile} / ${level}`;
   }
 
+  const HEVC_PROFILES = { 1: 'Main', 2: 'Main 10', 3: 'Main Still Picture', 4: 'Range Extensions' };
+  const AV1_PROFILES = { 0: 'Main', 1: 'High', 2: 'Professional' };
+  const hevcLevel = (id, high) => `${(id / 30).toFixed(1)}${high ? ' High tier' : ''}`;
+  const av1Level = (idx, high) => `${2 + (idx >> 2)}.${idx & 3}${high ? ' High tier' : ''}`;
+
   function fmtp(line) {
     const params = {};
     for (const kv of (line || '').split(';')) {
@@ -95,20 +100,32 @@
     switch (c.mimeType.toLowerCase()) {
       case 'video/h264': return p['profile-level-id'] && h264ProfileLevel(p['profile-level-id']);
       case 'video/h265': {
-        const profiles = { 1: 'Main', 2: 'Main 10', 3: 'Main Still Picture', 4: 'Range Extensions' };
         const out = [];
-        if (p['profile-id']) out.push(profiles[p['profile-id']] || `profile ${p['profile-id']}`);
-        if (p['level-id']) out.push(`${+p['level-id'] / 30}${p['tier-flag'] === '1' ? ' High tier' : ''}`);
+        if (p['profile-id']) out.push(HEVC_PROFILES[p['profile-id']] || `profile ${p['profile-id']}`);
+        if (p['level-id']) out.push(hevcLevel(+p['level-id'], p['tier-flag'] === '1'));
         return out.join(' / ');
       }
       case 'video/vp9': return p['profile-id'] && `Profile ${p['profile-id']}`;
-      case 'video/av1': {
-        const profiles = { 0: 'Main', 1: 'High', 2: 'Professional' };
-        const out = [profiles[p.profile || 0]];
-        const idx = +(p['level-idx'] ?? 5);
-        out.push(`${2 + (idx >> 2)}.${idx & 3}${p.tier === '1' ? ' High tier' : ''}`);
-        return out.join(' / ');
+      case 'video/av1':
+        return `${AV1_PROFILES[p.profile || 0]} / ${av1Level(+(p['level-idx'] ?? 5), p.tier === '1')}`;
+    }
+    return '';
+  }
+
+  const CODEC_NAMES = { avc1: 'H264', avc3: 'H264', hvc1: 'H265', hev1: 'H265', vp8: 'VP8', vp09: 'VP9', av01: 'AV1' };
+
+  // RFC 6381 codec strings, e.g. hvc1.2.4.L153.B0, vp09.02.51.10, av01.0.13M.10
+  function describeCodecString(codec) {
+    const [fourcc, ...f] = codec.split('.');
+    switch (fourcc) {
+      case 'avc1': case 'avc3': return h264ProfileLevel(f[0]) || '';
+      case 'hvc1': case 'hev1': {
+        const idc = parseInt(f[0].replace(/^[A-C]/, ''));
+        return `${HEVC_PROFILES[idc] || `profile ${idc}`} / ${hevcLevel(+f[2].slice(1), f[2][0] === 'H')}`;
       }
+      case 'vp09': return `Profile ${+f[0]} / ${Math.floor(f[1] / 10)}.${f[1] % 10} / ${+f[2]}-bit`;
+      case 'av01':
+        return `${AV1_PROFILES[+f[0]]} / ${av1Level(parseInt(f[1]), f[1].endsWith('H'))} / ${+f[2]}-bit`;
     }
     return '';
   }
@@ -132,6 +149,32 @@
       for (const r of rows || [])
         el.append('  ' + r.map((s, i) => i < 2 ? s.padEnd(w[i]) : s).join('  ').trimEnd() + '\n');
     });
+  }
+
+  const MSE_CODECS = {
+    'video/mp4': [
+      'avc1.42E01E', 'avc1.42E01F', 'avc1.4D401F', 'avc1.4D4028', 'avc1.64001F', 'avc1.640028',
+      'avc1.640033', 'avc1.640034', 'avc1.6E0033',
+      'hvc1.1.6.L93.B0', 'hvc1.1.6.L120.B0', 'hvc1.1.6.L153.B0', 'hvc1.1.6.L186.B0',
+      'hvc1.2.4.L153.B0', 'hev1.1.6.L153.B0',
+      'vp09.00.31.08', 'vp09.00.51.08', 'vp09.02.51.10',
+      'av01.0.05M.08', 'av01.0.08M.08', 'av01.0.12M.08', 'av01.0.13M.08', 'av01.0.13M.10', 'av01.0.16M.08',
+    ],
+    'video/webm': ['vp8', 'vp09.00.31.08', 'vp09.00.51.08', 'vp09.02.51.10', 'av01.0.08M.08', 'av01.0.13M.10'],
+  };
+
+  {
+    const el = document.getElementById('mse');
+    const name = window.MediaSource ? 'MediaSource' : window.ManagedMediaSource ? 'ManagedMediaSource' : null;
+    if (!name) {
+      el.textContent = 'MediaSource is not available in this browser.';
+    } else {
+      renderSections(el, Object.entries(MSE_CODECS).map(([type, codecs]) => [
+        `${name}.isTypeSupported('${type}')`,
+        codecs.filter(c => window[name].isTypeSupported(`${type}; codecs="${c}"`))
+          .map(c => [CODEC_NAMES[c.split('.')[0]], describeCodecString(c), c]),
+      ]));
+    }
   }
 
   {
