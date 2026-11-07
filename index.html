@@ -8,12 +8,12 @@
   /* Dark (Ubuntu Yaru) by default; light only when the system asks for it. */
   :root {
     --bg: #1e1e1e; --tab: #2c2c2c; --active: #383838; --border: #4a4a4a;
-    --text: #f2f2f2; --muted: #aaa; --accent: #e95420;
+    --text: #f2f2f2; --muted: #aaa; --accent: #e95420; --head: #b1b9f9;
   }
   @media (prefers-color-scheme: light) {
     :root {
       --bg: #e8e8e8; --tab: #d6d6d6; --active: #fafafa; --border: #b0b0b0;
-      --text: #222; --muted: #555;
+      --text: #222; --muted: #555; --head: #5769f7;
     }
   }
   html, body { height: 100%; margin: 0; }
@@ -40,6 +40,8 @@
     border: 1px solid var(--border); border-radius: 0 6px 6px 6px; background: var(--active);
   }
   .panel[hidden] { display: none; }
+  pre.panel { margin: 0; font: inherit; }
+  .head { color: var(--head); }
 </style>
 </head>
 <body>
@@ -48,7 +50,7 @@
   <button class="tab" data-tab="mse">MSE</button>
   <button class="tab" data-tab="webcodecs">WebCodecs</button>
 </div>
-<div class="panel" id="webrtc">WebRTC</div>
+<pre class="panel" id="webrtc"></pre>
 <div class="panel" id="mse" hidden>MSE</div>
 <div class="panel" id="webcodecs" hidden>WebCodecs</div>
 <script>
@@ -56,6 +58,91 @@
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
     document.querySelectorAll('.panel').forEach(p => p.hidden = p.id !== tab.dataset.tab);
   });
+  // H.264 profile-level-id: 3 hex bytes = profile_idc, constraint flags, level_idc (RFC 6184).
+  function h264ProfileLevel(hex) {
+    if (!/^[0-9a-f]{6}$/i.test(hex)) return null;
+    const idc = parseInt(hex.slice(0, 2), 16);
+    const iop = parseInt(hex.slice(2, 4), 16);
+    const lvl = parseInt(hex.slice(4, 6), 16);
+    const set1 = iop & 0x40, set3 = iop & 0x10, set45 = (iop & 0x0c) === 0x0c;
+    const names = {
+      66: 'Baseline', 77: 'Main', 88: 'Extended', 100: 'High', 110: 'High 10',
+      122: 'High 4:2:2', 244: 'High 4:4:4 Predictive', 44: 'CAVLC 4:4:4 Intra',
+      83: 'Scalable Baseline', 86: 'Scalable High', 118: 'Multiview High', 128: 'Stereo High',
+    };
+    let profile = names[idc] || `profile_idc ${idc}`;
+    if (idc === 66 && set1) profile = 'Constrained Baseline';
+    else if (idc === 100 && set45) profile = 'Constrained High';
+    else if ([110, 122, 244].includes(idc) && set3) profile += ' Intra';
+    const level = lvl === 9 || (lvl === 11 && set3 && [66, 77, 88].includes(idc))
+      ? '1b' : `${Math.floor(lvl / 10)}.${lvl % 10}`;
+    return `${profile} / ${level}`;
+  }
+
+  function fmtp(line) {
+    const params = {};
+    for (const kv of (line || '').split(';')) {
+      const [k, v] = kv.split('=');
+      if (k) params[k.trim()] = (v || '').trim();
+    }
+    return params;
+  }
+
+  function describe(c) {
+    const p = fmtp(c.sdpFmtpLine);
+    switch (c.mimeType.toLowerCase()) {
+      case 'video/h264': return p['profile-level-id'] && h264ProfileLevel(p['profile-level-id']);
+      case 'video/h265': {
+        const profiles = { 1: 'Main', 2: 'Main 10', 3: 'Main Still Picture', 4: 'Range Extensions' };
+        const out = [];
+        if (p['profile-id']) out.push(profiles[p['profile-id']] || `profile ${p['profile-id']}`);
+        if (p['level-id']) out.push(`${+p['level-id'] / 30}${p['tier-flag'] === '1' ? ' High tier' : ''}`);
+        return out.join(' / ');
+      }
+      case 'video/vp9': return p['profile-id'] && `Profile ${p['profile-id']}`;
+      case 'video/av1': {
+        const profiles = { 0: 'Main', 1: 'High', 2: 'Professional' };
+        const out = [profiles[p.profile || 0]];
+        const idx = +(p['level-idx'] ?? 5);
+        out.push(`${2 + (idx >> 2)}.${idx & 3}${p.tier === '1' ? ' High tier' : ''}`);
+        return out.join(' / ');
+      }
+    }
+    return '';
+  }
+
+  function codecRows(caps) {
+    return caps ? caps.codecs.map(c => [
+      c.mimeType + (c.channels ? `/${c.channels}` : ''),
+      describe(c) || '',
+      c.sdpFmtpLine || '',
+    ]) : null;
+  }
+
+  function renderSections(el, sections) {
+    const all = sections.flatMap(([, rows]) => rows || []);
+    const w = [0, 1].map(i => Math.max(0, ...all.map(r => r[i].length)));
+    sections.forEach(([title, rows], n) => {
+      const head = document.createElement('span');
+      head.className = 'head';
+      head.textContent = title + ':';
+      el.append(n ? '\n' : '', head, rows ? '\n' : ' not supported\n');
+      for (const r of rows || [])
+        el.append('  ' + r.map((s, i) => i < 2 ? s.padEnd(w[i]) : s).join('  ').trimEnd() + '\n');
+    });
+  }
+
+  {
+    const el = document.getElementById('webrtc');
+    if (!window.RTCRtpSender || !RTCRtpSender.getCapabilities) {
+      el.textContent = 'RTCRtpSender.getCapabilities is not available in this browser.';
+    } else {
+      renderSections(el, [
+        ["RTCRtpSender.getCapabilities('video')", codecRows(RTCRtpSender.getCapabilities('video'))],
+        ["RTCRtpReceiver.getCapabilities('video')", codecRows(RTCRtpReceiver.getCapabilities('video'))],
+      ]);
+    }
+  }
 </script>
 </body>
 </html>
