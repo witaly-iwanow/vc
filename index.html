@@ -54,7 +54,7 @@
 </div>
 <pre class="panel" id="webrtc"></pre>
 <pre class="panel" id="mse" hidden></pre>
-<div class="panel" id="webcodecs" hidden>WebCodecs</div>
+<pre class="panel" id="webcodecs" hidden></pre>
 <script>
   document.querySelectorAll('.tab').forEach(tab => tab.onclick = () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
@@ -151,17 +151,42 @@
     });
   }
 
+  const VIDEO_CODECS = [
+    'avc1.42E01E', 'avc1.42E01F', 'avc1.4D401F', 'avc1.4D4028', 'avc1.64001F', 'avc1.640028',
+    'avc1.640033', 'avc1.640034', 'avc1.6E0033',
+    'hvc1.1.6.L93.B0', 'hvc1.1.6.L120.B0', 'hvc1.1.6.L153.B0', 'hvc1.1.6.L186.B0',
+    'hvc1.2.4.L153.B0', 'hev1.1.6.L153.B0',
+    'vp8', 'vp09.00.31.08', 'vp09.00.51.08', 'vp09.02.51.10',
+    'av01.0.05M.08', 'av01.0.08M.08', 'av01.0.12M.08', 'av01.0.13M.08', 'av01.0.13M.10', 'av01.0.16M.08',
+  ];
+
   const MSE_CODECS = {
-    'video/mp4': [
-      'avc1.42E01E', 'avc1.42E01F', 'avc1.4D401F', 'avc1.4D4028', 'avc1.64001F', 'avc1.640028',
-      'avc1.640033', 'avc1.640034', 'avc1.6E0033',
-      'hvc1.1.6.L93.B0', 'hvc1.1.6.L120.B0', 'hvc1.1.6.L153.B0', 'hvc1.1.6.L186.B0',
-      'hvc1.2.4.L153.B0', 'hev1.1.6.L153.B0',
-      'vp09.00.31.08', 'vp09.00.51.08', 'vp09.02.51.10',
-      'av01.0.05M.08', 'av01.0.08M.08', 'av01.0.12M.08', 'av01.0.13M.08', 'av01.0.13M.10', 'av01.0.16M.08',
-    ],
+    'video/mp4': VIDEO_CODECS.filter(c => c !== 'vp8'),
     'video/webm': ['vp8', 'vp09.00.31.08', 'vp09.00.51.08', 'vp09.02.51.10', 'av01.0.08M.08', 'av01.0.13M.10'],
   };
+
+  async function supportedCodecs(api, config) {
+    const ok = await Promise.all(VIDEO_CODECS.map(codec =>
+      api.isConfigSupported({ codec, ...config }).then(r => r.supported, () => false)));
+    return VIDEO_CODECS.filter((_, i) => ok[i])
+      .map(c => [CODEC_NAMES[c.split('.')[0]], describeCodecString(c), c]);
+  }
+
+  (async () => {
+    const el = document.getElementById('webcodecs');
+    if (!window.VideoDecoder || !window.VideoEncoder) {
+      el.textContent = 'WebCodecs is not available in this browser.';
+      return;
+    }
+    const [dec, enc] = await Promise.all([
+      supportedCodecs(VideoDecoder, {}),
+      supportedCodecs(VideoEncoder, { width: 640, height: 480 }),
+    ]);
+    renderSections(el, [
+      ['VideoDecoder.isConfigSupported()', dec],
+      ['VideoEncoder.isConfigSupported()', enc],
+    ]);
+  })();
 
   {
     const el = document.getElementById('mse');
